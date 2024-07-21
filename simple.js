@@ -1,40 +1,62 @@
+function treeify(element) {
+	const childNodes = [...element.childNodes];
+	const textNodes = childNodes.filter(node => node.nodeType === Node.TEXT_NODE);
+	const elementNodes = childNodes.filter(node => node.nodeType === Node.ELEMENT_NODE);
+
+	const texts = textNodes.map(node => {
+		const content = node.textContent;
+		const placeholders = content.match(/{{[a-z0-9]*}}/g)
+			?.map(match => match.replaceAll(/({{)|(}})/g, ""))
+			|| [];
+		return {node, content, placeholders};
+	});
+
+	const subtrees = elementNodes.map(element => treeify(element));
+
+	return {element, texts, subtrees};
+}
+
+function replace(tree, data) {
+	tree.texts.forEach(text => {
+		let textContent = text.content;
+
+		text.placeholders.forEach(placeholder => {
+			const value = data[placeholder] ?? undefined;
+			textContent = text.content.replaceAll(`{{${placeholder}}}`, value);
+		});
+
+		text.node.textContent = textContent;
+	});
+
+	tree.subtrees.forEach(subtree => replace(subtree, data));
+}
+
+function hasPlaceholder(tree, placeholder) {
+	for (const text of tree.texts) {
+		if(text.placeholders.includes(placeholder)) {
+			return true;
+		}
+	}
+
+	for (const subtree of tree.subtrees) {
+		if (hasPlaceholder(subtree, placeholder)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 function simplify(element) {
-	const init = Symbol("init");
+	const tree = treeify(element);
+	const data = {};
+	replace(tree, data);
 
 	const handler = {
-		target: null,
-		textContent: null,
-		placeholders: null,
-
-		init(target) {
-			this.target = target;
-			this.textContent = target.textContent;
-			this.placeholders = this.textContent.match(/{{[a-z]*}}/g)
-				.map(match => match.replaceAll(/({{)|(}})/g, ""));
-
-			this.update();
-		},
-		update() {
-			let textContent = this.textContent;
-			this.placeholders.forEach(placeholder => {
-				textContent = textContent.replace(`{{${placeholder}}}`, this[placeholder]);
-			});
-			this.target.textContent = textContent;
-		},
+		tree,
+		data,
 
 		get(target, property, receiver) {
-			if (property === init) {
-				this.init(target);
-				return;
-			}
-
-			for (let i = 0; i < this.placeholders.length; i++) {
-				const placeholder = this.placeholders[i];
-				if (property === placeholder) {
-					return placeholder;
-				}
-			}
-
 			const value = Reflect.get(...arguments);
 			if (typeof(value) === "function") {
 				return value.bind(target);
@@ -43,21 +65,15 @@ function simplify(element) {
 			}
 		},
 		set(target, property, value, receiver) {
-			for (let i = 0; i < this.placeholders.length; i++) {
-				if (property === this.placeholders[i]) {
-					this[this.placeholders[i]] = value;
-
-					this.update();
-
-					return;
-				}
+			if (hasPlaceholder(this.tree, property)) {
+				this.data[property] = value;
+				replace(this.tree, this.data);
+				return;
 			}
 
 			Reflect.set(...arguments);
 		},
 	};
 
-	const proxy = new Proxy(element, handler);
-	proxy[init];
-	return proxy;
+	return new Proxy(element, handler);
 }
