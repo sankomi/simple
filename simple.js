@@ -34,9 +34,20 @@ function treeify(element, data) {
 	})
 		.filter(property => property !== null);
 
+	const templates = elementNodes.filter(node => node.nodeName === "TEMPLATE")
+		?.map(node => {
+			const name = node.getAttribute("for");
+
+			const end = document.createElement("span");
+			node.after(end);
+
+			return {node, name, end};
+		})
+		|| [];
+
 	const subtrees = elementNodes.map(element => treeify(element, data));
 
-	return {element, texts, propertys, subtrees, data, replace, hasPlaceholder, findAllNamekeys};
+	return {element, texts, propertys, templates, subtrees, data, replace, hasPlaceholder, findAllNamekeys, findAllTemplates, hasTemplate};
 }
 
 function replace() {
@@ -68,6 +79,20 @@ function replace() {
 		});
 
 		property.node.textContent = textContent;
+	});
+
+	this.templates.forEach(template => {
+		const array = this.data[template.name];
+		if (!Array.isArray(array)) return;
+
+		while (template.node.nextSibling !== template.end) {
+			template.node.nextSibling.remove();
+		}
+
+		array.forEach(item => {
+			const content = template.node.content.cloneNode(true);
+			template.end.before(content);
+		});
 	});
 
 	this.subtrees.forEach(subtree => subtree.replace());
@@ -116,6 +141,37 @@ function findAllNamekeys() {
 	return namekeys;
 }
 
+function findAllTemplates() {
+	const templates = [];
+
+	this.templates.forEach(template => {
+		if (!templates.includes(template.name)) templates.push(template.name);
+	});
+
+	this.subtrees.forEach(subtree => {
+		const subtemplates = subtree.findAllTemplates();
+		subtemplates.forEach(name => {
+			if (!templates.includes(name)) templates.push(name);
+		});
+	});
+
+	return templates;
+}
+
+function hasTemplate(name) {
+	for (const template of this.templates) {
+		if (template.name === name) {
+			return true;
+		}
+	}
+
+	for (const subtree of this.subtrees){
+		if (subtree.hasTemplate(name)) {
+			return true;
+		}
+	}
+}
+
 function simplify(element) {
 	const data = {};
 	const tree = treeify(element, data);
@@ -146,16 +202,48 @@ function simplify(element) {
 
 				Reflect.set(...arguments);
 			},
-		}
+		};
 
 		const proxy = new Proxy({}, handler);
 		namekeyProxys.set(name, proxy);
+	});
+
+	const templates = tree.findAllTemplates();
+	const templateProxys = new Map();
+	templates.forEach(name => {
+		const handler = {
+			get(target, property, receiver) {
+				const value = data[name][property];
+				if (typeof(value) === "function") {
+					return (...args) => {
+						value.bind(data[name])(...args);
+						tree.replace();
+					};
+				} else {
+					return value;
+				}
+
+				return undefined;
+			},
+			set(target, property, value, receiver) {
+				data[name][property] = value;
+
+				tree.replace();
+			},
+		};
+
+		const proxy = new Proxy([], handler);
+		templateProxys.set(name, proxy);
 	});
 
 	const handler = {
 		get(target, property, receiver) {
 			if (namekeyProxys.has(property)) {
 				return namekeyProxys.get(property);
+			}
+
+			if (tree.hasTemplate(property)) {
+				return templateProxys.get(property);
 			}
 
 			if (tree.hasPlaceholder(property)) {
@@ -171,6 +259,12 @@ function simplify(element) {
 		},
 		set(target, property, value, receiver) {
 			if (tree.hasPlaceholder(property)) {
+				data[property] = value;
+				tree.replace();
+				return;
+			}
+
+			if (tree.hasTemplate(property)) {
 				data[property] = value;
 				tree.replace();
 				return;
