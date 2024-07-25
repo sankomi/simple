@@ -91,6 +91,7 @@ function replace() {
 
 		array.forEach(item => {
 			const content = template.node.content.cloneNode(true);
+			treeify(content, item).replace();
 			template.end.before(content);
 		});
 	});
@@ -187,7 +188,7 @@ function simplify(element) {
 				}
 
 				const value = Reflect.get(...arguments);
-				if (typeof(value) === "function") {
+				if (typeof value === "function") {
 					return value.bind(target);
 				} else {
 					return value;
@@ -208,28 +209,38 @@ function simplify(element) {
 		namekeyProxys.set(name, proxy);
 	});
 
+	const getTrap = (data, key, target, property, receiver) => {
+		const value = data[key][property];
+		if (typeof value === "function") {
+			return (...args) => {
+				value.bind(data[key])(...args);
+				tree.replace();
+			};
+		} else if (typeof value === "object") {
+			const handler = {
+				get: getTrap.bind(this, data[key], property),
+				set: setTrap.bind(this, data[key], property),
+			};
+
+			return new Proxy({}, handler);
+		} else {
+			return value;
+		}
+	};
+
+	const setTrap = (data, key, target, property, value, receiver) => {
+		data[key][property] = value;
+		tree.replace();
+	};
+
 	const templates = tree.findAllTemplates();
 	const templateProxys = new Map();
 	templates.forEach(name => {
+		data[name] = [];
+
 		const handler = {
-			get(target, property, receiver) {
-				const value = data[name][property];
-				if (typeof(value) === "function") {
-					return (...args) => {
-						value.bind(data[name])(...args);
-						tree.replace();
-					};
-				} else {
-					return value;
-				}
-
-				return undefined;
-			},
-			set(target, property, value, receiver) {
-				data[name][property] = value;
-
-				tree.replace();
-			},
+			get: getTrap.bind(this, data, name),
+			set: setTrap.bind(this, data, name),
 		};
 
 		const proxy = new Proxy([], handler);
@@ -251,7 +262,7 @@ function simplify(element) {
 			}
 
 			const value = Reflect.get(...arguments);
-			if (typeof(value) === "function") {
+			if (typeof value === "function") {
 				return value.bind(target);
 			} else {
 				return value;
