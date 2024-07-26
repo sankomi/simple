@@ -209,7 +209,9 @@ function simplify(element) {
 		namekeyProxys.set(name, proxy);
 	});
 
-	const getTrap = (data, key, target, property, receiver) => {
+	const proxys = new Map();
+
+	const getTrap = (data, key, path, target, property, receiver) => {
 		const value = data[key][property];
 		if (typeof value === "function") {
 			return (...args) => {
@@ -217,12 +219,20 @@ function simplify(element) {
 				tree.replace();
 			};
 		} else if (typeof value === "object") {
-			const handler = {
-				get: getTrap.bind(this, data[key], property),
-				set: setTrap.bind(this, data[key], property),
-			};
+			const subpath = path + "/" + property;
 
-			return new Proxy({}, handler);
+			if (proxys.has(subpath)) {
+				return proxys.get(subpath);
+			} else {
+				const handler = {
+					get: getTrap.bind(this, data[key], property, path + "/" + property),
+					set: setTrap.bind(this, data[key], property),
+				};
+
+				const proxy = new Proxy({}, handler);
+				proxys.set(subpath, proxy);
+				return proxy;
+			}
 		} else {
 			return value;
 		}
@@ -239,7 +249,7 @@ function simplify(element) {
 		data[name] = [];
 
 		const handler = {
-			get: getTrap.bind(this, data, name),
+			get: getTrap.bind(this, data, name, "/" + name),
 			set: setTrap.bind(this, data, name),
 		};
 
