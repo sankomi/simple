@@ -41,7 +41,7 @@ function treeify(element, data) {
 			const end = document.createElement("span");
 			node.after(end);
 
-			return {node, name, end};
+			return {node, name, end, instances: new Map()};
 		})
 		|| [];
 
@@ -85,14 +85,36 @@ function replace() {
 		const array = this.data[template.name];
 		if (!Array.isArray(array)) return;
 
-		while (template.node.nextSibling !== template.end) {
-			template.node.nextSibling.remove();
-		}
+		const updated = [];
 
 		array.forEach(item => {
-			const content = template.node.content.cloneNode(true);
-			treeify(content, item).replace();
-			template.end.before(content);
+			if (template.instances.has(item)) {
+				const instance = template.instances.get(item);
+				const json = JSON.stringify(item);
+
+				if (json !== instance.json) {
+					instance.tree.replace();
+					instance.json = json;
+				}
+
+				updated.push(item);
+			} else {
+				const content = template.node.content.firstElementChild.cloneNode(true);
+				const tree = treeify(content, item);
+				tree.replace();
+				template.end.before(content);
+
+				template.instances.set(item, {tree, content, json: JSON.stringify(item)});
+
+				updated.push(item);
+			}
+		});
+
+		template.instances.forEach((instance, item) => {
+			if (updated.includes(item)) return;
+
+			instance.content.remove();
+			template.instances.delete(item);
 		});
 	});
 
