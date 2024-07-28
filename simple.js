@@ -1,321 +1,240 @@
-function treeify(element, data) {
-	const childNodes = [...element.childNodes];
-	const textNodes = childNodes.filter(node => node.nodeType === Node.TEXT_NODE);
-	const elementNodes = childNodes.filter(node => node.nodeType === Node.ELEMENT_NODE);
+let simplify = null;
 
-	const texts = textNodes.map(node => {
-		const content = node.textContent;
-		const placeholders = content.match(/{{[a-z0-9]+}}/g)
-			?.map(match => match.replaceAll(/({{)|(}})/g, ""))
-			|| [];
+{
+	const OTHER_KEYS = Symbol();
+	const STRING_KEYS = Symbol();
+	const OBJECT_KEYS = Symbol();
+	const OBJECT_PROXYS = Symbol();
 
-		if (placeholders.length === 0) return null;
-		return {node, content, placeholders};
-	})
-		.filter(text => text !== null);
+	simplify = element => {
+		const data = {
+			[OTHER_KEYS]: {},
+			[STRING_KEYS]: new Set(),
+			[OBJECT_KEYS]: new Map(),
+			[OBJECT_PROXYS]: new Map(),
+		};
+		const tree = treeify(element, data);
 
-	const propertys = textNodes.map(node => {
-		const content = node.textContent;
-		const placeholders = new Map();
-		content.match(/{{[a-z0-9]+\.[a-z0-9]+}}/g)
-			?.map(match => match.replaceAll(/({{)|(}})/g, ""))
-			?.forEach(match => {
-				const split = match.split(".");
-				const name = split[0];
-
-				if (!data[name]) data[name] = {};
-				if (!placeholders.has(name)) placeholders.set(name, []);
-				const array = placeholders.get(name);
-				array.push(split[1]);
-			});
-
-		if (placeholders.size === 0) return null;
-		return {node, content, placeholders};
-	})
-		.filter(property => property !== null);
-
-	const templates = elementNodes.filter(node => node.nodeName === "TEMPLATE")
-		?.map(node => {
-			const name = node.getAttribute("for");
-
-			const end = document.createElement("span");
-			node.after(end);
-
-			return {node, name, end, instances: new Map()};
-		})
-		|| [];
-
-	const subtrees = elementNodes.map(element => treeify(element, data));
-
-	return {element, texts, propertys, templates, subtrees, data, replace, hasPlaceholder, findAllNamekeys, findAllTemplates, hasTemplate};
-}
-
-function replace() {
-	this.texts.forEach(text => {
-		let textContent = text.content;
-
-		text.placeholders.forEach(placeholder => {
-			const value = this.data[placeholder] ?? undefined;
-			textContent = textContent.replaceAll(`{{${placeholder}}}`, value);
-		});
-
-		text.node.textContent = textContent;
-	});
-
-	this.propertys.forEach(property => {
-		let textContent = property.content;
-
-		property.placeholders.forEach((keys, name) => {
-			const object = this.data[name] ?? undefined;
-			if (object === undefined) {
-				textContent = textContent.replaceAll(new RegExp(`{{${name}\.[a-z0-9]+}}`, "g"), "undefined");
-				return;
-			}
-
-			keys.forEach(key => {
-				const value = object[key] ?? undefined;
-				textContent = textContent.replaceAll(new RegExp(`{{${name}\.${key}}}`, "g"), value);
-			});
-		});
-
-		property.node.textContent = textContent;
-	});
-
-	this.templates.forEach(template => {
-		const array = this.data[template.name];
-		if (!Array.isArray(array)) return;
-
-		const updated = [];
-
-		array.forEach(item => {
-			if (template.instances.has(item)) {
-				const instance = template.instances.get(item);
-				const json = JSON.stringify(item);
-
-				if (json !== instance.json) {
-					instance.tree.replace();
-					instance.json = json;
-				}
-
-				updated.push(item);
-			} else {
-				const content = template.node.content.firstElementChild.cloneNode(true);
-				const tree = treeify(content, item);
-				tree.replace();
-				template.end.before(content);
-
-				template.instances.set(item, {tree, content, json: JSON.stringify(item)});
-
-				updated.push(item);
-			}
-		});
-
-		template.instances.forEach((instance, item) => {
-			if (updated.includes(item)) return;
-
-			instance.content.remove();
-			template.instances.delete(item);
-		});
-	});
-
-	this.subtrees.forEach(subtree => subtree.replace());
-}
-
-function hasPlaceholder(placeholder) {
-	for (const text of this.texts) {
-		if(text.placeholders.includes(placeholder)) {
-			return true;
-		}
-	}
-
-	for (const property of this.propertys) {
-		if (property.placeholders.has(placeholder)) {
-			return true;
-		}
-	}
-
-	for (const subtree of this.subtrees) {
-		if (subtree.hasPlaceholder(placeholder)) {
-			return true;
-		}
-	}
-
-	return false;
-}
-
-function findAllNamekeys() {
-	const namekeys = new Map();
-
-	this.propertys.forEach(property => {
-		property.placeholders.forEach((keys, name) => {
-			if (!namekeys.has(name)) namekeys.set(name, []);
-			namekeys.get(name).push(...keys);
-		});
-	});
-
-	this.subtrees.forEach(subtree => {
-		const subnamekeys = subtree.findAllNamekeys();
-		subnamekeys.forEach((keys, name) => {
-			if (!namekeys.has(name)) namekeys.set(name, []);
-			namekeys.get(name).push(...keys);
-		});
-	});
-
-	return namekeys;
-}
-
-function findAllTemplates() {
-	const templates = [];
-
-	this.templates.forEach(template => {
-		if (!templates.includes(template.name)) templates.push(template.name);
-	});
-
-	this.subtrees.forEach(subtree => {
-		const subtemplates = subtree.findAllTemplates();
-		subtemplates.forEach(name => {
-			if (!templates.includes(name)) templates.push(name);
-		});
-	});
-
-	return templates;
-}
-
-function hasTemplate(name) {
-	for (const template of this.templates) {
-		if (template.name === name) {
-			return true;
-		}
-	}
-
-	for (const subtree of this.subtrees){
-		if (subtree.hasTemplate(name)) {
-			return true;
-		}
-	}
-}
-
-function simplify(element) {
-	const data = {};
-	const tree = treeify(element, data);
-	tree.replace();
-
-	const namekeys = tree.findAllNamekeys();
-	const namekeyProxys = new Map();
-	namekeys.forEach((keys, name) => {
 		const handler = {
-			get(target, property, receiver) {
-				if (keys.includes(property)) {
-					return data[name][property];
+			get(target, property) {
+				if (data[STRING_KEYS].has(property)) return data[property];
+				if (data[OBJECT_KEYS].has(property)) return data[OBJECT_PROXYS].get(property);
+
+				const value = data[property];
+				if (value !== undefined) {
+					if (typeof value === "function") {
+						return (...args) => {
+							const before = JSON.stringify(data[key]);
+							value.bind(data)(...args);
+							if (before !== JSON.stringify(data[key])) {
+								tree.updateObjects();
+							}
+						};
+					} else {
+						return value;
+					}
 				}
 
-				const value = Reflect.get(...arguments);
-				if (typeof value === "function") {
-					return value.bind(target);
-				} else {
-					return value;
-				}
+				return data[OTHER_KEYS][property];
 			},
-			set(target, property, value, receiver) {
-				if (keys.includes(property)) {
-					data[name][property] = value;
-					tree.replace();
+			set (target, property, value) {
+				if (data[STRING_KEYS].has(property)) {
+					data[property] = value;
+					tree.updateStrings();
+
 					return;
 				}
 
-				Reflect.set(...arguments);
+				if (data[OBJECT_KEYS].has(property)) {
+					data[property] = value;
+					tree.updateObjects();
+
+					return;
+				}
+
+				if (data[property] !== undefined) {
+					data[property] = value;
+
+					return;
+				}
+
+				data[OTHER_KEYS][property] = value;
 			},
 		};
 
-		const proxy = new Proxy({}, handler);
-		namekeyProxys.set(name, proxy);
-	});
+		return new Proxy({}, handler);
+	}
 
-	const proxys = new Map();
+	function treeify(element, data) {
+		const childNodes = [...element.childNodes];
+		const textNodes = childNodes.filter(node => node.nodeType === Node.TEXT_NODE);
+		const elementNodes = childNodes.filter(node => node.nodeType === Node.ELEMENT_NODE);
 
-	const getTrap = (data, key, path, target, property, receiver) => {
-		const value = data[key][property];
-		if (typeof value === "function") {
-			return (...args) => {
-				value.bind(data[key])(...args);
-				tree.replace();
-			};
-		} else if (typeof value === "object") {
-			const subpath = path + "/" + property;
+		const strings = [];
+		const objects = [];
 
-			if (proxys.has(subpath)) {
-				return proxys.get(subpath);
-			} else {
-				const handler = {
-					get: getTrap.bind(this, data[key], property, path + "/" + property),
-					set: setTrap.bind(this, data[key], property),
-				};
+		textNodes.map(node => {
+			const content = node.textContent;
 
-				const proxy = new Proxy({}, handler);
-				proxys.set(subpath, proxy);
-				return proxy;
+			const stringKeys = content.match(/{{[a-z0-9]+}}/g)
+				?.map(match => match.replaceAll(/({{)|(}})/g, ""))
+				|| [];
+			if (stringKeys.length > 0) {
+				stringKeys.forEach(key => data[STRING_KEYS].add(key));
+
+				strings.push({
+					node, content,
+					keys: stringKeys,
+					values: Array(stringKeys.length),
+				});
 			}
-		} else {
-			return value;
+
+			const objectKeys = content.match(/{{[a-z0-9]+\.[a-z0-9]+}}/g)
+				?.map(match => match.replaceAll(/({{)|(}})/g, ""))
+				|| [];
+			if (objectKeys.length > 0) {
+				const keys = new Map();
+				const jsons = new Map();
+
+				objectKeys.forEach(objectKey => {
+					const split = objectKey.split(".");
+					const key = split[0];
+					const subkey = split[1];
+
+					if (!data[OBJECT_KEYS].has(key)) data[OBJECT_KEYS].set(key, new Set());
+					data[OBJECT_KEYS].get(key).add(subkey);
+
+					if (!keys.has(key)) keys.set(key, new Set());
+					keys.get(key).add(subkey);
+
+					if (!jsons.has(key)) jsons.set(key, new Set());
+					jsons.get(key).add(JSON.stringify(data[key]));
+				});
+
+				objects.push({
+					node, content,
+					keys, jsons,
+				});
+			}
+		});
+
+		const subtrees = elementNodes.map(element => treeify(element, data));
+
+		const tree = {
+			element, data,
+			strings, updateStrings,
+			objects, updateObjects,
+			subtrees,
 		}
-	};
 
-	const setTrap = (data, key, target, property, value, receiver) => {
-		data[key][property] = value;
-		tree.replace();
-	};
+		data[OBJECT_KEYS].forEach((subkey, key) => {
+			data[key] = {[OTHER_KEYS]: {}};
+			data[OBJECT_PROXYS].set(key, createObjectProxy(tree, key));
+		});
 
-	const templates = tree.findAllTemplates();
-	const templateProxys = new Map();
-	templates.forEach(name => {
-		data[name] = [];
+		tree.updateStrings();
+		tree.updateObjects();
+		return tree;
+	}
+
+	function createObjectProxy(tree, key) {
+		const data = tree.data;
 
 		const handler = {
-			get: getTrap.bind(this, data, name, "/" + name),
-			set: setTrap.bind(this, data, name),
+			get(target, property) {
+				if (data[OBJECT_KEYS].get(key).has(property)) {
+					return data[key][property];
+				}
+
+				const value = data[key][property];
+				if (value !== undefined) {
+					if (typeof value === "function") {
+						return (...args) => {
+							const before = JSON.stringify(data[key]);
+							value.bind(data[key])(...args);
+							if (before !== JSON.stringify(data[key])) {
+								tree.updateObjects();
+							}
+						};
+					} else {
+						return value;
+					}
+				}
+
+				return data[key][OTHER_KEYS][property];
+			},
+			set(target, property, value) {
+				if (data[OBJECT_KEYS].get(key).has(property)) {
+					data[key][property] = value;
+					tree.updateObjects();
+
+					return;
+				}
+
+				if (data[key][property] !== undefined) {
+					data[key][property] = value;
+
+					return;
+				}
+
+				data[key][OTHER_KEYS][property] = value;
+			},
 		};
 
-		const proxy = new Proxy([], handler);
-		templateProxys.set(name, proxy);
-	});
+		return new Proxy({}, handler);
+	}
 
-	const handler = {
-		get(target, property, receiver) {
-			if (namekeyProxys.has(property)) {
-				return namekeyProxys.get(property);
+	function updateStrings() {
+		this.strings.forEach(string => {
+			const data = this.data;
+			const keys = string.keys;
+			const values = string.values;
+
+			let changed = false;
+			for (let i = keys.length - 1; i >=0; i--) {
+				if (data[keys[i]] !== values[i]) {
+					values[i] = data[keys[i]];
+					changed = true;
+				}
 			}
+			if (!changed) return;
 
-			if (tree.hasTemplate(property)) {
-				return templateProxys.get(property);
+			let content = string.content;
+			for (let i = keys.length - 1; i >=0; i--) {
+				content = content.replaceAll(`{{${keys[i]}}}`, values[i]);
 			}
+			string.node.textContent = content;
+		});
 
-			if (tree.hasPlaceholder(property)) {
-				return data[property];
-			}
+		this.subtrees.forEach(subtree => subtree.updateStrings());
+	}
 
-			const value = Reflect.get(...arguments);
-			if (typeof value === "function") {
-				return value.bind(target);
-			} else {
-				return value;
-			}
-		},
-		set(target, property, value, receiver) {
-			if (tree.hasPlaceholder(property)) {
-				data[property] = value;
-				tree.replace();
-				return;
-			}
+	function updateObjects() {
+		this.objects.forEach(object => {
+			const data = this.data;
+			const keys = object.keys;
+			const jsons = object.jsons;
 
-			if (tree.hasTemplate(property)) {
-				data[property] = value;
-				tree.replace();
-				return;
-			}
+			let changed = false;
+			keys.forEach((subkey, key) => {
+				const json = JSON.stringify(data[key]);
+				if (json !== jsons.get(key)) {
+					jsons.set(key, json);
+					changed = true;
+				}
+			});
+			if (!changed) return;
 
-			Reflect.set(...arguments);
-		},
-	};
+			let content = object.content;
+			keys.forEach((subkeys, key) => {
+				subkeys.forEach(subkey => {
+					const value = data[key][subkey];
+					content = content.replaceAll(new RegExp(`{{${key}\.${subkey}}}`, "g"), value);
+				});
+			});
+			object.node.textContent = content;
+		});
 
-	return new Proxy({}, handler);
+		this.subtrees.forEach(subtree => subtree.updateObjects());
+	}
 }
