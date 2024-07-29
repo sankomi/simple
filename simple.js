@@ -5,20 +5,18 @@ let simplify = null;
 	const STRING_KEYS = Symbol();
 	const OBJECT_KEYS = Symbol();
 	const OBJECT_PROXYS = Symbol();
+	const TEMPLATE_KEYS = Symbol();
+	const TEMPLATE_PROXYS = Symbol();
 
 	simplify = element => {
-		const data = {
-			[OTHER_KEYS]: {},
-			[STRING_KEYS]: new Set(),
-			[OBJECT_KEYS]: new Map(),
-			[OBJECT_PROXYS]: new Map(),
-		};
+		const data = {};
 		const tree = treeify(element, data);
 
 		const handler = {
 			get(target, property) {
 				if (data[STRING_KEYS].has(property)) return data[property];
 				if (data[OBJECT_KEYS].has(property)) return data[OBJECT_PROXYS].get(property);
+				if (data[TEMPLATE_KEYS].has(property)) return data[TEMPLATE_PROXYS].get(property);
 
 				const value = data[property];
 				if (value !== undefined) {
@@ -41,20 +39,23 @@ let simplify = null;
 				if (data[STRING_KEYS].has(property)) {
 					data[property] = value;
 					tree.updateStrings();
-
 					return;
 				}
 
 				if (data[OBJECT_KEYS].has(property)) {
 					data[property] = value;
 					tree.updateObjects();
+					return;
+				}
 
+				if (data[TEMPLATE_KEYS].has(property)) {
+					data[property] = value;
+					tree.updateTemplates();
 					return;
 				}
 
 				if (data[property] !== undefined) {
 					data[property] = value;
-
 					return;
 				}
 
@@ -65,7 +66,16 @@ let simplify = null;
 		return new Proxy({}, handler);
 	}
 
-	function treeify(element, data) {
+	function treeify(element, data, root = true) {
+		if (root) {
+			data[OTHER_KEYS] = {};
+			data[STRING_KEYS] = new Set();
+			data[OBJECT_KEYS] = new Map();
+			data[OBJECT_PROXYS] = new Map();
+			data[TEMPLATE_KEYS] = new Set();
+			data[TEMPLATE_PROXYS] = new Map();
+		}
+
 		const childNodes = [...element.childNodes];
 		const textNodes = childNodes.filter(node => node.nodeType === Node.TEXT_NODE);
 		const elementNodes = childNodes.filter(node => node.nodeType === Node.ELEMENT_NODE);
@@ -118,27 +128,53 @@ let simplify = null;
 			}
 		});
 
-		const subtrees = elementNodes.map(element => treeify(element, data));
+		const templates = [];
+		const subtrees = [];
+
+		elementNodes.forEach(node => {
+			if (node.nodeName !== "TEMPLATE") {
+				subtrees.push(treeify(node, data, false));
+				return;
+			}
+
+			const key = node.getAttribute("for");
+			const end = document.createElement("span");
+			node.after(end);
+
+			const copys = new Map();
+
+			data[TEMPLATE_KEYS].add(key);
+
+			templates.push({
+				node, end,
+				key, copys,
+			});
+		});
 
 		const tree = {
 			element, data,
 			strings, updateStrings,
 			objects, updateObjects,
+			templates, updateTemplates,
 			subtrees,
 		}
 
-		data[OBJECT_KEYS].forEach((subkey, key) => {
-			data[key] = {[OTHER_KEYS]: {}};
-			data[OBJECT_PROXYS].set(key, createObjectProxy(tree, key));
-		});
+		data[OBJECT_KEYS].forEach((subkey, key) => createObjectProxy(tree, key));
+		data[TEMPLATE_KEYS].forEach(key => createTemplateProxy(tree, key));
 
-		tree.updateStrings();
-		tree.updateObjects();
+		if (root) {
+			tree.updateStrings();
+			tree.updateObjects();
+			tree.updateTemplates();
+		}
+
 		return tree;
 	}
 
 	function createObjectProxy(tree, key) {
 		const data = tree.data;
+		const proxys = data[OBJECT_PROXYS];
+		data[key] = {[OTHER_KEYS]: {}};
 
 		const handler = {
 			get(target, property) {
@@ -167,13 +203,11 @@ let simplify = null;
 				if (data[OBJECT_KEYS].get(key).has(property)) {
 					data[key][property] = value;
 					tree.updateObjects();
-
 					return;
 				}
 
 				if (data[key][property] !== undefined) {
 					data[key][property] = value;
-
 					return;
 				}
 
@@ -181,7 +215,54 @@ let simplify = null;
 			},
 		};
 
-		return new Proxy({}, handler);
+		proxys.set(key, new Proxy({}, handler));
+	}
+
+	function createTemplateProxy(tree, key) {
+		const data = tree.data;
+		const proxys = data[TEMPLATE_PROXYS];
+		data[key] = [];
+		data[key][OTHER_KEYS] = {};
+
+		const getTrap = (data, key, keys, target, property) => {
+			const value = data[key][property];
+
+			if (typeof value === "function") {
+				return (...args) => {
+					value.bind(data[key])(...args);
+					tree.updateTemplates();
+				};
+			} else if (typeof value === "object") {
+				const subkeys = `${keys}/${property}`;
+
+				if (proxys.has(subkeys)) {
+					return proxys.get(subkeys);
+				} else {
+					const handler = {
+						get: getTrap.bind(this, data[key], property, `${keys}/${property}`),
+						set: setTrap.bind(this, data[key], property),
+					};
+
+					const proxy = new Proxy({}, handler);
+					proxys.set(subkeys, proxy);
+					return proxy;
+				}
+			} else {
+				return value;
+			}
+		};
+
+		const setTrap = (data, key, target, property, value) => {
+			data[key][property] = value;
+			tree.updateTemplates();
+		};
+
+		const handler = {
+			get: getTrap.bind(this, data, key, `/${key}`),
+			set: setTrap.bind(this, data, key),
+		};
+
+		proxys.set(key, new Proxy({}, handler));
 	}
 
 	function updateStrings() {
@@ -236,5 +317,49 @@ let simplify = null;
 		});
 
 		this.subtrees.forEach(subtree => subtree.updateObjects());
+	}
+
+	function updateTemplates() {
+		this.templates.forEach(template => {
+			const data = this.data;
+			const node = template.node;
+			const end = template.end;
+			const key = template.key;
+			const copys = template.copys;
+
+			const updated = new Set();
+
+			data[key].forEach(item => {
+				if (copys.has(item)) {
+					const copy = copys.get(item);
+					const json = JSON.stringify(item);
+
+					if (json !== copy.json) {
+						copy.tree.updateStrings();
+						copy.tree.updateObjects();
+						copy.tree.updateTemplates();
+						copy.json = json;
+					}
+				} else {
+					const element = node.content.firstElementChild.cloneNode(true);
+					const tree = treeify(element, item);
+					const json = JSON.stringify(item);
+					end.before(element);
+
+					copys.set(item, {tree, json});
+				}
+
+				updated.add(item);
+			});
+
+			copys.forEach((copy, item) => {
+				if (updated.has(item)) return;
+
+				copy.tree.element.remove();
+				copys.delete(item);
+			});
+		});
+
+		this.subtrees.forEach(subtree => subtree.updateTemplates());
 	}
 }
