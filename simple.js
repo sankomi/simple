@@ -97,7 +97,7 @@ let simplify = null;
 				});
 			}
 
-			const objectKeys = content.match(/{{[a-z0-9]+\.[a-z0-9]+}}/g)
+			const objectKeys = content.match(/{{([a-z0-9]+\.)+[a-z0-9]+}}/g)
 				?.map(match => match.replaceAll(/({{)|(}})/g, ""))
 				|| [];
 			if (objectKeys.length > 0) {
@@ -106,8 +106,8 @@ let simplify = null;
 
 				objectKeys.forEach(objectKey => {
 					const split = objectKey.split(".");
-					const key = split[0];
-					const subkey = split[1];
+					const key = split.shift();
+					const subkey = split.join(".");
 
 					if (!data[OBJECT_KEYS].has(key)) data[OBJECT_KEYS].set(key, new Set());
 					data[OBJECT_KEYS].get(key).add(subkey);
@@ -171,8 +171,27 @@ let simplify = null;
 
 	function createObjectProxy(tree, key) {
 		const data = tree.data;
+		const subkeys = data[OBJECT_KEYS].get(key);
 		const proxys = data[OBJECT_PROXYS];
-		if (!data[key]) data[key] = {[OTHER_KEYS]: {}};
+		if (!data[key]) {
+			data[key] = {[OTHER_KEYS]: {}};
+			subkeys.forEach(subkey => {
+				const split = subkey.split(".");
+
+				if (split.length === 1) {
+					if (data[subkey]) data[subkey] = undefined;
+					return;
+				}
+
+				let target = data[key];
+				const last = split.pop();
+				for (let i = 0; i < split.length; i++) {
+					target[split[i]] = {[OTHER_KEYS]: {}};
+					target = target[split[i]];
+				}
+				target[last] = undefined;
+			});
+		}
 
 		const getTrap = (data, key, keys, target, property) => {
 			const value = data[key][property];
@@ -183,13 +202,13 @@ let simplify = null;
 					tree.updateObjects();
 				};
 			} else if (typeof value === "object") {
-				const subkeys = `${keys}/${property}`;
+				const subkeys = `${keys}.${property}`;
 
 				if (proxys.has(subkeys)) {
 					return proxys.get(subkeys);
 				} else {
 					const handler = {
-						get: getTrap.bind(this, data[key], property, `${keys}/${property}`),
+						get: getTrap.bind(this, data[key], property, subkeys),
 						set: setTrap.bind(this, data[key], property),
 					};
 
@@ -208,7 +227,7 @@ let simplify = null;
 		};
 
 		const handler = {
-			get: getTrap.bind(this, data, key, `/${key}`),
+			get: getTrap.bind(this, data, key, key),
 			set: setTrap.bind(this, data, key),
 		};
 
@@ -232,13 +251,13 @@ let simplify = null;
 					tree.updateTemplates();
 				};
 			} else if (typeof value === "object") {
-				const subkeys = `${keys}/${property}`;
+				const subkeys = `${keys}.${property}`;
 
 				if (proxys.has(subkeys)) {
 					return proxys.get(subkeys);
 				} else {
 					const handler = {
-						get: getTrap.bind(this, data[key], property, `${keys}/${property}`),
+						get: getTrap.bind(this, data[key], property, subkeys),
 						set: setTrap.bind(this, data[key], property),
 					};
 
@@ -257,7 +276,7 @@ let simplify = null;
 		};
 
 		const handler = {
-			get: getTrap.bind(this, data, key, `/${key}`),
+			get: getTrap.bind(this, data, key, key),
 			set: setTrap.bind(this, data, key),
 		};
 
@@ -308,7 +327,22 @@ let simplify = null;
 			let content = object.content;
 			keys.forEach((subkeys, key) => {
 				subkeys.forEach(subkey => {
-					const value = data[key][subkey];
+					const split = subkey.split(".");
+
+					let value;
+					if (split.length === 1) {
+						value = data[key][subkey];
+					} else {
+						let target = data[key];
+						const last = split.pop();
+
+						for (let i = 0; i < split.length; i++) {
+							target = target[split[i]];
+						}
+
+						value = target[last];
+					}
+
 					content = content.replaceAll(new RegExp(`{{${key}\.${subkey}}}`, "g"), value);
 				});
 			});
