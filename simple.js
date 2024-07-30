@@ -67,14 +67,12 @@ let simplify = null;
 	}
 
 	function treeify(element, data, root = true) {
-		if (root) {
-			data[OTHER_KEYS] = {};
-			data[STRING_KEYS] = new Set();
-			data[OBJECT_KEYS] = new Map();
-			data[OBJECT_PROXYS] = new Map();
-			data[TEMPLATE_KEYS] = new Set();
-			data[TEMPLATE_PROXYS] = new Map();
-		}
+		if (!data[OTHER_KEYS]) data[OTHER_KEYS] = {};
+		if (!data[STRING_KEYS]) data[STRING_KEYS] = new Set();
+		if (!data[OBJECT_KEYS]) data[OBJECT_KEYS] = new Map();
+		if (!data[OBJECT_PROXYS]) data[OBJECT_PROXYS] = new Map();
+		if (!data[TEMPLATE_KEYS]) data[TEMPLATE_KEYS] = new Set();
+		if (!data[TEMPLATE_PROXYS]) data[TEMPLATE_PROXYS] = new Map();
 
 		const childNodes = [...element.childNodes];
 		const textNodes = childNodes.filter(node => node.nodeType === Node.TEXT_NODE);
@@ -174,45 +172,44 @@ let simplify = null;
 	function createObjectProxy(tree, key) {
 		const data = tree.data;
 		const proxys = data[OBJECT_PROXYS];
-		data[key] = {[OTHER_KEYS]: {}};
+		if (!data[key]) data[key] = {[OTHER_KEYS]: {}};
+
+		const getTrap = (data, key, keys, target, property) => {
+			const value = data[key][property];
+
+			if (typeof value === "function") {
+				return (...args) => {
+					value.bind(data[key])(...args);
+					tree.updateObjects();
+				};
+			} else if (typeof value === "object") {
+				const subkeys = `${keys}/${property}`;
+
+				if (proxys.has(subkeys)) {
+					return proxys.get(subkeys);
+				} else {
+					const handler = {
+						get: getTrap.bind(this, data[key], property, `${keys}/${property}`),
+						set: setTrap.bind(this, data[key], property),
+					};
+
+					const proxy = new Proxy({}, handler);
+					proxys.set(subkeys, proxy);
+					return proxy;
+				}
+			} else {
+				return value;
+			}
+		};
+
+		const setTrap = (data, key, target, property, value) => {
+			data[key][property] = value;
+			tree.updateObjects();
+		};
 
 		const handler = {
-			get(target, property) {
-				if (data[OBJECT_KEYS].get(key).has(property)) {
-					return data[key][property];
-				}
-
-				const value = data[key][property];
-				if (value !== undefined) {
-					if (typeof value === "function") {
-						return (...args) => {
-							const before = JSON.stringify(data[key]);
-							value.bind(data[key])(...args);
-							if (before !== JSON.stringify(data[key])) {
-								tree.updateObjects();
-							}
-						};
-					} else {
-						return value;
-					}
-				}
-
-				return data[key][OTHER_KEYS][property];
-			},
-			set(target, property, value) {
-				if (data[OBJECT_KEYS].get(key).has(property)) {
-					data[key][property] = value;
-					tree.updateObjects();
-					return;
-				}
-
-				if (data[key][property] !== undefined) {
-					data[key][property] = value;
-					return;
-				}
-
-				data[key][OTHER_KEYS][property] = value;
-			},
+			get: getTrap.bind(this, data, key, `/${key}`),
+			set: setTrap.bind(this, data, key),
 		};
 
 		proxys.set(key, new Proxy({}, handler));
@@ -221,8 +218,10 @@ let simplify = null;
 	function createTemplateProxy(tree, key) {
 		const data = tree.data;
 		const proxys = data[TEMPLATE_PROXYS];
-		data[key] = [];
-		data[key][OTHER_KEYS] = {};
+		if (!data[key]) {
+			data[key] = [];
+			data[key][OTHER_KEYS] = {};
+		}
 
 		const getTrap = (data, key, keys, target, property) => {
 			const value = data[key][property];
