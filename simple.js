@@ -25,7 +25,7 @@ let simplify = null;
 							const before = JSON.stringify(data[key]);
 							value.bind(data)(...args);
 							if (before !== JSON.stringify(data[key])) {
-								tree.updateObjects();
+								tree.updateTexts();
 							}
 						};
 					} else {
@@ -38,13 +38,13 @@ let simplify = null;
 			set (target, property, value) {
 				if (data[STRING_KEYS].has(property)) {
 					data[property] = value;
-					tree.updateStrings();
+					tree.updateTexts();
 					return;
 				}
 
 				if (data[OBJECT_KEYS].has(property)) {
 					data[property] = value;
-					tree.updateObjects();
+					tree.updateTexts();
 					return;
 				}
 
@@ -78,25 +78,22 @@ let simplify = null;
 		const textNodes = childNodes.filter(node => node.nodeType === Node.TEXT_NODE);
 		const elementNodes = childNodes.filter(node => node.nodeType === Node.ELEMENT_NODE);
 
-		const strings = [];
-		const objects = [];
+		const texts = [];
 
-		textNodes.map(node => {
+		textNodes.forEach(node => {
 			const content = node.textContent;
 
+			let strings;
 			const stringKeys = content.match(/{{[a-z0-9]+}}/g)
 				?.map(match => match.replaceAll(/({{)|(}})/g, ""))
 				|| [];
 			if (stringKeys.length > 0) {
 				stringKeys.forEach(key => data[STRING_KEYS].add(key));
 
-				strings.push({
-					node, content,
-					keys: stringKeys,
-					values: Array(stringKeys.length),
-				});
+				strings = {keys: stringKeys, values: Array(stringKeys.length)};
 			}
 
+			let objects;
 			const objectKeys = content.match(/{{([a-z0-9]+\.)+[a-z0-9]+}}/g)
 				?.map(match => match.replaceAll(/({{)|(}})/g, ""))
 				|| [];
@@ -119,11 +116,13 @@ let simplify = null;
 					jsons.get(key).add(JSON.stringify(data[key]));
 				});
 
-				objects.push({
-					node, content,
-					keys, jsons,
-				});
+				objects = {keys, jsons};
 			}
+
+			texts.push({
+				node, content,
+				strings, objects,
+			});
 		});
 
 		const templates = [];
@@ -151,8 +150,7 @@ let simplify = null;
 
 		const tree = {
 			element, data,
-			strings, updateStrings,
-			objects, updateObjects,
+			texts, updateTexts,
 			templates, updateTemplates,
 			subtrees,
 		}
@@ -161,8 +159,7 @@ let simplify = null;
 		data[TEMPLATE_KEYS].forEach(key => createTemplateProxy(tree, key));
 
 		if (root) {
-			tree.updateStrings();
-			tree.updateObjects();
+			tree.updateTexts();
 			tree.updateTemplates();
 		}
 
@@ -199,7 +196,7 @@ let simplify = null;
 			if (typeof value === "function") {
 				return (...args) => {
 					value.bind(data[key])(...args);
-					tree.updateObjects();
+					tree.updateTexts();
 				};
 			} else if (typeof value === "object") {
 				const subkeys = `${keys}.${property}`;
@@ -223,7 +220,7 @@ let simplify = null;
 
 		const setTrap = (data, key, target, property, value) => {
 			data[key][property] = value;
-			tree.updateObjects();
+			tree.updateTexts();
 		};
 
 		const handler = {
@@ -283,73 +280,73 @@ let simplify = null;
 		proxys.set(key, new Proxy({}, handler));
 	}
 
-	function updateStrings() {
-		this.strings.forEach(string => {
+	function updateTexts() {
+		this.texts.forEach(text => {
 			const data = this.data;
-			const keys = string.keys;
-			const values = string.values;
+			const strings = text.strings;
+			const objects = text.objects;
+
+			if (!strings && !objects) return;
 
 			let changed = false;
-			for (let i = keys.length - 1; i >=0; i--) {
-				if (data[keys[i]] !== values[i]) {
-					values[i] = data[keys[i]];
-					changed = true;
+
+			if (strings) {
+				for (let i = strings.keys.length - 1; i >= 0; i--) {
+					if (data[strings.keys[i]] !== strings.values[i]) {
+						strings.values[i] = data[strings.keys[i]];
+						changed = true;
+					}
 				}
 			}
-			if (!changed) return;
 
-			let content = string.content;
-			for (let i = keys.length - 1; i >=0; i--) {
-				content = content.replaceAll(`{{${keys[i]}}}`, values[i]);
+			if (objects) {
+				objects.keys.forEach((subkey, key) => {
+					const json = JSON.stringify(data[key]);
+					if (json !== objects.jsons.get(key)) {
+						objects.jsons.set(key, json);
+						changed = true;
+					}
+				});
 			}
-			string.node.textContent = content;
-		});
 
-		this.subtrees.forEach(subtree => subtree.updateStrings());
-	}
-
-	function updateObjects() {
-		this.objects.forEach(object => {
-			const data = this.data;
-			const keys = object.keys;
-			const jsons = object.jsons;
-
-			let changed = false;
-			keys.forEach((subkey, key) => {
-				const json = JSON.stringify(data[key]);
-				if (json !== jsons.get(key)) {
-					jsons.set(key, json);
-					changed = true;
-				}
-			});
 			if (!changed) return;
 
-			let content = object.content;
-			keys.forEach((subkeys, key) => {
-				subkeys.forEach(subkey => {
-					const split = subkey.split(".");
+			let content = text.content;
 
-					let value;
-					if (split.length === 1) {
-						value = data[key][subkey];
-					} else {
-						let target = data[key];
-						const last = split.pop();
+			if (strings) {
+				for (let i = strings.keys.length - 1; i >=0; i--) {
+					content = content.replaceAll(`{{${strings.keys[i]}}}`, strings.values[i]);
+				}
+			}
 
-						for (let i = 0; i < split.length; i++) {
-							target = target[split[i]];
+			if (objects) {
+				objects.keys.forEach((subkeys, key) => {
+					subkeys.forEach(subkey => {
+						const split = subkey.split(".");
+
+						let value;
+						if (split.length === 1) {
+							value = data[key][subkey];
+						} else {
+							let target = data[key];
+							const last = split.pop();
+
+							for (let i = 0; i < split.length; i++) {
+								target = target[split[i]];
+							}
+
+							value = target[last];
 						}
 
-						value = target[last];
-					}
-
-					content = content.replaceAll(new RegExp(`{{${key}\.${subkey}}}`, "g"), value);
+						content = content.replaceAll(new RegExp(`{{${key}\.${subkey}}}`, "g"), value);
+					});
 				});
-			});
-			object.node.textContent = content;
+			}
+
+			text.node.textContent = content;
 		});
 
-		this.subtrees.forEach(subtree => subtree.updateObjects());
+		this.subtrees.forEach(subtree => subtree.updateTexts());
 	}
 
 	function updateTemplates() {
@@ -368,8 +365,7 @@ let simplify = null;
 					const json = JSON.stringify(item);
 
 					if (json !== copy.json) {
-						copy.tree.updateStrings();
-						copy.tree.updateObjects();
+						copy.tree.updateTexts();
 						copy.tree.updateTemplates();
 						copy.json = json;
 					}
