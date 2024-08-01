@@ -83,45 +83,46 @@ let simplify = null;
 		textNodes.forEach(node => {
 			const content = node.textContent;
 
+			const values = new Map();
+
 			let strings;
 			const stringKeys = content.match(/{{[a-z0-9]+}}/g)
 				?.map(match => match.replaceAll(/({{)|(}})/g, ""))
 				|| [];
-			if (stringKeys.length > 0) {
-				stringKeys.forEach(key => data[STRING_KEYS].add(key));
 
-				strings = {keys: stringKeys, values: Array(stringKeys.length)};
-			}
+			stringKeys.forEach(key => {
+				data[STRING_KEYS].add(key);
+				values.set(key, undefined);
+			});
+
+			strings = {keys: stringKeys};
 
 			let objects;
 			const objectKeys = content.match(/{{([a-z0-9]+\.)+[a-z0-9]+}}/g)
 				?.map(match => match.replaceAll(/({{)|(}})/g, ""))
 				|| [];
-			if (objectKeys.length > 0) {
-				const keys = new Map();
-				const jsons = new Map();
 
-				objectKeys.forEach(objectKey => {
-					const split = objectKey.split(".");
-					const key = split.shift();
-					const subkey = split.join(".");
+			const keys = new Map();
 
-					if (!data[OBJECT_KEYS].has(key)) data[OBJECT_KEYS].set(key, new Set());
-					data[OBJECT_KEYS].get(key).add(subkey);
+			objectKeys.forEach(objectKey => {
+				const split = objectKey.split(".");
+				const key = split.shift();
+				const subkey = split.join(".");
 
-					if (!keys.has(key)) keys.set(key, new Set());
-					keys.get(key).add(subkey);
+				if (!data[OBJECT_KEYS].has(key)) data[OBJECT_KEYS].set(key, new Set());
+				data[OBJECT_KEYS].get(key).add(subkey);
 
-					if (!jsons.has(key)) jsons.set(key, new Set());
-					jsons.get(key).add(JSON.stringify(data[key]));
-				});
+				if (!keys.has(key)) keys.set(key, new Set());
+				keys.get(key).add(subkey);
 
-				objects = {keys, jsons};
-			}
+				values.set(objectKey, undefined);
+			});
+
+			objects = {keys};
 
 			texts.push({
 				node, content,
-				strings, objects,
+				strings, objects, values,
 			});
 		});
 
@@ -285,63 +286,60 @@ let simplify = null;
 			const data = this.data;
 			const strings = text.strings;
 			const objects = text.objects;
+			const values = text.values;
 
 			if (!strings && !objects) return;
 
 			let changed = false;
 
-			if (strings) {
-				for (let i = strings.keys.length - 1; i >= 0; i--) {
-					if (data[strings.keys[i]] !== strings.values[i]) {
-						strings.values[i] = data[strings.keys[i]];
-						changed = true;
-					}
+			strings.keys.forEach(key => {
+				const value = data[key];
+				if (values.get(key) !== value) {
+					values.set(key, value);
+					changed = true;
 				}
-			}
+			});
 
-			if (objects) {
-				objects.keys.forEach((subkey, key) => {
-					const json = JSON.stringify(data[key]);
-					if (json !== objects.jsons.get(key)) {
-						objects.jsons.set(key, json);
+			objects.keys.forEach((subkeys, key) => {
+				subkeys.forEach(subkey => {
+					const split = subkey.split(".");
+
+					let value;
+					if (split.length === 1) {
+						value = data[key][subkey];
+					} else {
+						let target = data[key];
+						const last = split.pop();
+
+						for (let i = 0; i < split.length; i++) {
+							target = target[split[i]];
+						}
+
+						value = target[last];
+					}
+
+					const valuekey = `${key}.${subkey}`;
+					if (values.get(valuekey) !== value) {
+						values.set(valuekey, value);
 						changed = true;
 					}
 				});
-			}
+			});
 
 			if (!changed) return;
 
 			let content = text.content;
 
-			if (strings) {
-				for (let i = strings.keys.length - 1; i >=0; i--) {
-					content = content.replaceAll(`{{${strings.keys[i]}}}`, strings.values[i]);
-				}
-			}
+			strings.keys.forEach(key => {
+				content = content.replaceAll(`{{${key}}}`, values.get(key));
+			});
 
-			if (objects) {
-				objects.keys.forEach((subkeys, key) => {
-					subkeys.forEach(subkey => {
-						const split = subkey.split(".");
-
-						let value;
-						if (split.length === 1) {
-							value = data[key][subkey];
-						} else {
-							let target = data[key];
-							const last = split.pop();
-
-							for (let i = 0; i < split.length; i++) {
-								target = target[split[i]];
-							}
-
-							value = target[last];
-						}
-
-						content = content.replaceAll(new RegExp(`{{${key}\.${subkey}}}`, "g"), value);
-					});
+			objects.keys.forEach((subkeys, key) => {
+				subkeys.forEach(subkey => {
+					const valuekey = `${key}.${subkey}`;
+					content = content.replaceAll(`{{${valuekey}}}`, values.get(valuekey));
 				});
-			}
+			});
 
 			text.node.textContent = content;
 		});
