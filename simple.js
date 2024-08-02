@@ -85,24 +85,20 @@ let simplify = null;
 
 			const values = new Map();
 
-			let strings;
-			const stringKeys = content.match(/{{[a-z0-9]+}}/g)
+			const strings = content.match(/{{[a-z0-9]+}}/g)
 				?.map(match => match.replaceAll(/({{)|(}})/g, ""))
 				|| [];
 
-			stringKeys.forEach(key => {
+			strings.forEach(key => {
 				data[STRING_KEYS].add(key);
 				values.set(key, undefined);
 			});
 
-			strings = {keys: stringKeys};
-
-			let objects;
 			const objectKeys = content.match(/{{([a-z0-9]+\.)+[a-z0-9]+}}/g)
 				?.map(match => match.replaceAll(/({{)|(}})/g, ""))
 				|| [];
 
-			const keys = new Map();
+			const objects = new Map();
 
 			objectKeys.forEach(objectKey => {
 				const split = objectKey.split(".");
@@ -112,13 +108,11 @@ let simplify = null;
 				if (!data[OBJECT_KEYS].has(key)) data[OBJECT_KEYS].set(key, new Set());
 				data[OBJECT_KEYS].get(key).add(subkey);
 
-				if (!keys.has(key)) keys.set(key, new Set());
-				keys.get(key).add(subkey);
+				if (!objects.has(key)) objects.set(key, new Set());
+				objects.get(key).add(subkey);
 
 				values.set(objectKey, undefined);
 			});
-
-			objects = {keys};
 
 			texts.push({
 				node, content,
@@ -288,11 +282,9 @@ let simplify = null;
 			const objects = text.objects;
 			const values = text.values;
 
-			if (!strings && !objects) return;
-
 			let changed = false;
 
-			strings.keys.forEach(key => {
+			strings.forEach(key => {
 				const value = data[key];
 				if (values.get(key) !== value) {
 					values.set(key, value);
@@ -300,7 +292,7 @@ let simplify = null;
 				}
 			});
 
-			objects.keys.forEach((subkeys, key) => {
+			objects.forEach((subkeys, key) => {
 				subkeys.forEach(subkey => {
 					const split = subkey.split(".");
 
@@ -330,11 +322,11 @@ let simplify = null;
 
 			let content = text.content;
 
-			strings.keys.forEach(key => {
+			strings.forEach(key => {
 				content = content.replaceAll(`{{${key}}}`, values.get(key));
 			});
 
-			objects.keys.forEach((subkeys, key) => {
+			objects.forEach((subkeys, key) => {
 				subkeys.forEach(subkey => {
 					const valuekey = `${key}.${subkey}`;
 					content = content.replaceAll(`{{${valuekey}}}`, values.get(valuekey));
@@ -360,20 +352,14 @@ let simplify = null;
 			data[key].forEach(item => {
 				if (copys.has(item)) {
 					const copy = copys.get(item);
-					const json = JSON.stringify(item);
-
-					if (json !== copy.json) {
-						copy.tree.updateTexts();
-						copy.tree.updateTemplates();
-						copy.json = json;
-					}
+					copy.updateTexts();
+					copy.updateTemplates();
 				} else {
 					const element = node.content.firstElementChild.cloneNode(true);
 					const tree = treeify(element, item);
-					const json = JSON.stringify(item);
 					end.before(element);
 
-					copys.set(item, {tree, json});
+					copys.set(item, tree);
 				}
 
 				updated.add(item);
@@ -382,7 +368,7 @@ let simplify = null;
 			copys.forEach((copy, item) => {
 				if (updated.has(item)) return;
 
-				copy.tree.element.remove();
+				copy.element.remove();
 				copys.delete(item);
 			});
 		});
