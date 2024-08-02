@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<meta name="robots" content="noindex">
+		<title id="title">{{username}}</title>
+
+		<style>
+			* {box-sizing: border-box;}
+			html {font-family: monospace;}
+			body {max-width: 60rem; padding: 1rem; margin: 0 auto;}
+			ul {padding: 0; list-style-type: none;}
+		</style>
+		<script src="simple.js"></script>
+	</head>
+	<body>
+		<h1 id="h1">{{username}}</h1>
+		<div id="list">
+			<template for="messages">
+				<p>{{message}}</p>
+			</template>
+			<ul>
+				<template for="repos">
+					<li>
+						<h2>{{name}}</h2>
+						<p>{{description}}</p>
+					</li>
+				</template>
+			</ul>
+			<div>
+				<a id="prev" href="">prev</a>
+				<a id="next" href="">next</a>
+			</div>
+		</div>
+
+		<script>
+			const USERNAME = "sankomi";
+
+			simplify(document.getElementById("title")).username = USERNAME;
+			simplify(document.getElementById("h1")).username = USERNAME;
+
+			const list = document.getElementById("list");
+			list.style.transition = "opacity 0.2s";
+			const listdata = simplify(list);
+			const linkmap = new Map();
+
+			const prev = document.getElementById("prev");
+			const next = document.getElementById("next");
+			prev.style.transition = "opacity 0.2s";
+			next.style.transition = "opacity 0.2s";
+			prev.addEventListener("click", event => {
+				event.preventDefault();
+				if (linkmap.has("prev")) {
+					fetchRepos(linkmap.get("prev"));
+				}
+			});
+			next.addEventListener("click", event => {
+				event.preventDefault();
+				if (linkmap.has("next")) {
+					fetchRepos(linkmap.get("next"));
+				}
+			});
+
+			let page = 1;
+			let fetching = false;
+			fetchRepos(`https://api.github.com/users/${USERNAME}/repos?sort=updated&direction=desc&per_page=5&page=${page}`);
+
+			function fetchRepos(link) {
+				if (fetching) return;
+				fetching = true;
+
+				list.style.opacity = "0.2";
+				linkmap.clear();
+
+				fetch(link, {headers: {accept: "application/vnd.github+json"}})
+					.then(res => {
+						if (res.status === 200) {
+							const links = res.headers.get("link");
+							return res.json()
+								.then(json => ({links, json}));
+						} else {
+							throw new Error();
+						}
+					})
+					.then(({links, json}) => {
+						listdata.repos = json;
+
+						const split = links.split(",");
+						split.forEach(string => {
+							const split = string.split(";");
+							if (split.length !== 2) return;
+
+							const name = split[1].trim().replaceAll(/(rel=)|"/g, "");
+							const link = split[0].trim().replaceAll(/<|>/g, "");
+							linkmap.set(name, link);
+						});
+
+						prev.style.opacity = linkmap.has("prev")? "1": "0.2";
+						next.style.opacity = linkmap.has("next")? "1": "0.2";
+					})
+					.catch(err => {
+						listdata.messages.push({message: "failed to fetch"});
+					})
+					.finally(() => {
+						list.style.opacity = "1";
+						fetching = false;
+					});
+			}
+		</script>
+	</body>
+</html>
