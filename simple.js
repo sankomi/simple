@@ -74,13 +74,14 @@ let simplify = null;
 		if (!data[TEMPLATE_KEYS]) data[TEMPLATE_KEYS] = new Set();
 		if (!data[TEMPLATE_PROXYS]) data[TEMPLATE_PROXYS] = new Map();
 
+		const attributeNodes = [...element.attributes];
 		const childNodes = [...element.childNodes];
 		const textNodes = childNodes.filter(node => node.nodeType === Node.TEXT_NODE);
 		const elementNodes = childNodes.filter(node => node.nodeType === Node.ELEMENT_NODE);
 
 		const texts = [];
 
-		textNodes.forEach(node => {
+		[...attributeNodes, ...textNodes].forEach(node => {
 			const content = node.textContent;
 
 			const values = new Map();
