@@ -16,21 +16,23 @@
 	</head>
 	<body>
 		<h1 id="h1">{{username}}</h1>
-		<div id="list">
+		<div id="list" style="transition: opacity 0.2s; opacity: {{opacity}};">
 			<template for="messages">
 				<p>{{message}}</p>
 			</template>
 			<ul>
 				<template for="repos">
 					<li>
-						<h2>{{name}}</h2>
+						<h2>
+							<a href="{{url}}">{{name}}</a>
+						</h2>
 						<p>{{description}}</p>
 					</li>
 				</template>
 			</ul>
 			<div>
-				<a id="prev" href="">prev</a>
-				<a id="next" href="">next</a>
+				<a id="prev" href="" style="transition: opacity 0.2s; opacity: {{prev.opacity}};">prev</a>
+				<a id="next" href="" style="transition: opacity 0.2s; opacity: {{next.opacity}};">next</a>
 			</div>
 		</div>
 
@@ -40,15 +42,11 @@
 			simplify(document.getElementById("title")).username = USERNAME;
 			simplify(document.getElementById("h1")).username = USERNAME;
 
-			const list = document.getElementById("list");
-			list.style.transition = "opacity 0.2s";
-			const listdata = simplify(list);
+			const list = simplify(document.getElementById("list"));
 			const linkmap = new Map();
 
 			const prev = document.getElementById("prev");
 			const next = document.getElementById("next");
-			prev.style.transition = "opacity 0.2s";
-			next.style.transition = "opacity 0.2s";
 			prev.addEventListener("click", event => {
 				event.preventDefault();
 				if (linkmap.has("prev")) {
@@ -64,13 +62,13 @@
 
 			let page = 1;
 			let fetching = false;
-			fetchRepos(`https://api.github.com/users/${USERNAME}/repos?sort=updated&direction=desc&per_page=5&page=${page}`);
+			fetchRepos(`https://api.github.com/users/${USERNAME}/repos?sort=pushed&direction=desc&per_page=5&page=${page}`);
 
 			function fetchRepos(link) {
 				if (fetching) return;
 				fetching = true;
 
-				list.style.opacity = "0.2";
+				list.opacity = "0.2";
 				linkmap.clear();
 
 				fetch(link, {headers: {accept: "application/vnd.github+json"}})
@@ -84,7 +82,14 @@
 						}
 					})
 					.then(({links, json}) => {
-						listdata.repos = json;
+						list.repos.length = 0;
+						json.forEach(item => {
+							list.repos.push({
+								name: item.name,
+								description: item.description,
+								url: item["html_url"],
+							});
+						});
 
 						const split = links.split(",");
 						split.forEach(string => {
@@ -96,14 +101,14 @@
 							linkmap.set(name, link);
 						});
 
-						prev.style.opacity = linkmap.has("prev")? "1": "0.2";
-						next.style.opacity = linkmap.has("next")? "1": "0.2";
+						list.prev.opacity = linkmap.has("prev")? "1": "0.2";
+						list.next.opacity = linkmap.has("next")? "1": "0.2";
 					})
 					.catch(err => {
-						listdata.messages.push({message: "failed to fetch"});
+						list.messages.push({message: "failed to fetch"});
 					})
 					.finally(() => {
-						list.style.opacity = "1";
+						list.opacity = "1";
 						fetching = false;
 					});
 			}
