@@ -31,8 +31,8 @@
 				</template>
 			</ul>
 			<div>
-				<a id="prev" href="" style="transition: opacity 0.2s; opacity: {{prev.opacity}};">prev</a>
-				<a id="next" href="" style="transition: opacity 0.2s; opacity: {{next.opacity}};">next</a>
+				<a id="prev" href="" onclick="{{showPrev}}" style="transition: opacity 0.2s; opacity: {{prev.opacity}};">prev</a>
+				<a id="next" href="" onclick="{{showNext}}" style="transition: opacity 0.2s; opacity: {{next.opacity}};">next</a>
 			</div>
 		</div>
 
@@ -43,22 +43,19 @@
 			simplify(document.getElementById("h1")).username = USERNAME;
 
 			const list = simplify(document.getElementById("list"));
-			const linkmap = new Map();
 
-			const prev = document.getElementById("prev");
-			const next = document.getElementById("next");
-			prev.addEventListener("click", event => {
+			list.showPrev = event => {
 				event.preventDefault();
-				if (linkmap.has("prev")) {
-					fetchRepos(linkmap.get("prev"));
+				if (list.prevLink) {
+					fetchRepos(list.prevLink);
 				}
-			});
-			next.addEventListener("click", event => {
+			}
+			list.showNext = event => {
 				event.preventDefault();
-				if (linkmap.has("next")) {
-					fetchRepos(linkmap.get("next"));
+				if (list.nextLink) {
+					fetchRepos(list.nextLink);
 				}
-			});
+			}
 
 			let page = 1;
 			let fetching = false;
@@ -69,7 +66,8 @@
 				fetching = true;
 
 				list.opacity = "0.2";
-				linkmap.clear();
+				list.prevLink = null;
+				list.nextLink = null;
 
 				fetch(link, {headers: {accept: "application/vnd.github+json"}})
 					.then(res => {
@@ -98,11 +96,13 @@
 
 							const name = split[1].trim().replaceAll(/(rel=)|"/g, "");
 							const link = split[0].trim().replaceAll(/<|>/g, "");
-							linkmap.set(name, link);
+
+							if (name === "prev") list.prevLink = link;
+							else if (name === "next") list.nextLink = link;
 						});
 
-						list.prev.opacity = linkmap.has("prev")? "1": "0.2";
-						list.next.opacity = linkmap.has("next")? "1": "0.2";
+						list.prev.opacity = list.prevLink? "1": "0.2";
+						list.next.opacity = list.nextLink? "1": "0.2";
 					})
 					.catch(err => {
 						list.messages.push({message: "failed to fetch"});

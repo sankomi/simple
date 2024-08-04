@@ -7,6 +7,7 @@ let simplify = null;
 	const OBJECT_PROXYS = Symbol();
 	const TEMPLATE_KEYS = Symbol();
 	const TEMPLATE_PROXYS = Symbol();
+	const LISTENER_KEYS = Symbol();
 
 	simplify = element => {
 		const data = {};
@@ -14,6 +15,7 @@ let simplify = null;
 
 		const handler = {
 			get(target, property) {
+				if (data[LISTENER_KEYS].has(property)) return data[property];
 				if (data[STRING_KEYS].has(property)) return data[property];
 				if (data[OBJECT_KEYS].has(property)) return data[OBJECT_PROXYS].get(property);
 				if (data[TEMPLATE_KEYS].has(property)) return data[TEMPLATE_PROXYS].get(property);
@@ -36,6 +38,11 @@ let simplify = null;
 				return data[OTHER_KEYS][property];
 			},
 			set (target, property, value) {
+				if (data[LISTENER_KEYS].has(property)) {
+					data[property] = value;
+					return;
+				}
+
 				if (data[STRING_KEYS].has(property)) {
 					data[property] = value;
 					tree.updateTexts();
@@ -73,6 +80,7 @@ let simplify = null;
 		if (!data[OBJECT_PROXYS]) data[OBJECT_PROXYS] = new Map();
 		if (!data[TEMPLATE_KEYS]) data[TEMPLATE_KEYS] = new Set();
 		if (!data[TEMPLATE_PROXYS]) data[TEMPLATE_PROXYS] = new Map();
+		if (!data[LISTENER_KEYS]) data[LISTENER_KEYS] = new Set();
 
 		const attributeNodes = [...element.attributes];
 		const childNodes = [...element.childNodes];
@@ -85,6 +93,24 @@ let simplify = null;
 			const content = node.textContent;
 
 			const values = new Map();
+
+			if (node.name === "onclick") {
+				if (/^{{[A-Za-z0-9]+}}$/.test(content)) {
+					const key = content.replaceAll(/({{)|(}})/g, "");
+					data[LISTENER_KEYS].add(key);
+
+					const owner = node.ownerElement;
+					owner.removeAttribute(node.name);
+					owner.addEventListener("click", event => {
+						const listener = data[key];
+						if (typeof listener === "function") {
+							listener(event);
+						}
+					});
+
+					return;
+				}
+			}
 
 			const strings = content.match(/{{[a-z0-9]+}}/g)
 				?.map(match => match.replaceAll(/({{)|(}})/g, ""))
