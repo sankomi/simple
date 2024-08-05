@@ -16,7 +16,7 @@
 	</head>
 	<body>
 		<h1 id="h1">{{username}}</h1>
-		<div id="list" style="transition: opacity 0.2s; opacity: {{opacity}};">
+		<div id="list" style="{{styles.list}}">
 			<template for="messages">
 				<p>{{message}}</p>
 			</template>
@@ -31,8 +31,8 @@
 				</template>
 			</ul>
 			<div>
-				<a id="prev" href="" onclick="{{showPrev}}" style="transition: opacity 0.2s; opacity: {{prev.opacity}};">prev</a>
-				<a id="next" href="" onclick="{{showNext}}" style="transition: opacity 0.2s; opacity: {{next.opacity}};">next</a>
+				<a id="prev" href="" onclick="{{showPrev}}" style="{{styles.prev}}">prev</a>
+				<a id="next" href="" onclick="{{showNext}}" style="{{styles.next}}">next</a>
 			</div>
 		</div>
 
@@ -44,6 +44,11 @@
 
 			const list = simplify(document.getElementById("list"));
 
+			list.styles = {
+				list: {transition: "opacity 0.2s", opacity: 1},
+				next: {transition: "opacity 0.2s", opacity: 1},
+				prev: {transition: "opacity 0.2s", opacity: 1},
+			};
 			list.showPrev = event => {
 				event.preventDefault();
 				if (list.prevLink) {
@@ -65,7 +70,7 @@
 				if (fetching) return;
 				fetching = true;
 
-				list.opacity = "0.2";
+				list.styles.list = {transition: "opacity 0.2s", opacity: 0.2};
 				list.prevLink = null;
 				list.nextLink = null;
 
@@ -101,14 +106,14 @@
 							else if (name === "next") list.nextLink = link;
 						});
 
-						list.prev.opacity = list.prevLink? "1": "0.2";
-						list.next.opacity = list.nextLink? "1": "0.2";
+						list.styles.prev = {transition: "opacity 0.2s", opacity: list.prevLink? 1: 0.2};
+						list.styles.next = {transition: "opacity 0.2s", opacity: list.nextLink? 1: 0.2};
 					})
 					.catch(err => {
 						list.messages.push({message: "failed to fetch"});
 					})
 					.finally(() => {
-						list.opacity = "1";
+						list.styles.list = {transition: "opacity 0.2s", opacity: 1};
 						fetching = false;
 					});
 			}

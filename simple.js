@@ -200,14 +200,14 @@ let simplify = null;
 				const split = subkey.split(".");
 
 				if (split.length === 1) {
-					if (data[subkey]) data[subkey] = undefined;
+					if (!data[subkey]) data[subkey] = undefined;
 					return;
 				}
 
 				let target = data[key];
 				const last = split.pop();
 				for (let i = 0; i < split.length; i++) {
-					target[split[i]] = {[OTHER_KEYS]: {}};
+					if (!target[split[i]]) target[split[i]] = {[OTHER_KEYS]: {}};
 					target = target[split[i]];
 				}
 				target[last] = undefined;
@@ -350,6 +350,21 @@ let simplify = null;
 			if (!changed) return;
 
 			let content = text.content;
+
+			if (text.node.name === "style") {
+				if (/^{{([a-z0-9]+\.)*[a-z0-9]+}}$/.test(content)) {
+					const key = content.replaceAll(/({{)|(}})/g, "");
+					const object = values.get(key);
+					if (!object) return;
+
+					const string = Object.entries(object)
+						.map(([key, value]) => `${key}:${value}`)
+						.join(";");
+
+					text.node.textContent = string;
+					return;
+				}
+			}
 
 			strings.forEach(key => {
 				content = content.replaceAll(`{{${key}}}`, values.get(key));
