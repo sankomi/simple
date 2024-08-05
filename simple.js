@@ -94,14 +94,16 @@ let simplify = null;
 
 			const values = new Map();
 
-			if (node.name === "onclick") {
+			if (/^on[a-z]+$/.test(node.name)) {
+				const type = node.name.substring(2);
+
 				if (/^{{[A-Za-z0-9]+}}$/.test(content)) {
 					const key = content.replaceAll(/({{)|(}})/g, "");
 					data[LISTENER_KEYS].add(key);
 
 					const owner = node.ownerElement;
 					owner.removeAttribute(node.name);
-					owner.addEventListener("click", event => {
+					owner.addEventListener(type, event => {
 						const listener = data[key];
 						if (typeof listener === "function") {
 							listener(event);
