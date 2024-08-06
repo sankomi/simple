@@ -307,9 +307,46 @@ let simplify = null;
 	function updateTexts() {
 		this.texts.forEach(text => {
 			const data = this.data;
+			const node = text.node;
+			let content = text.content;
 			const strings = text.strings;
 			const objects = text.objects;
 			const values = text.values;
+
+			if (node.name === "style") {
+				if (/^{{([a-z0-9]+\.)*[a-z0-9]+}}$/.test(content)) {
+					const styleKey = content.replaceAll(/({{)|(}})/g, "");
+
+					let object;
+					if (/\./.test(styleKey)) {
+						const split = styleKey.split(".");
+						const key = split.shift();
+						const subkey = split.join(".");
+
+						if (split.length === 1) {
+							object = data[key][subkey];
+						} else {
+							let target = data[key];
+							const last = split.pop();
+
+							for (let i = 0; i < split.length; i++) {
+								target = target[split[i]];
+							}
+
+							object = target[last];
+						}
+					} else {
+						object = data[styleKey];
+					}
+
+					const string = Object.entries(object || {})
+						.map(([key, value]) => `${key}:${value}`)
+						.join(";");
+
+					node.textContent = string;
+					return;
+				}
+			}
 
 			let changed = false;
 
@@ -349,23 +386,6 @@ let simplify = null;
 
 			if (!changed) return;
 
-			let content = text.content;
-
-			if (text.node.name === "style") {
-				if (/^{{([a-z0-9]+\.)*[a-z0-9]+}}$/.test(content)) {
-					const key = content.replaceAll(/({{)|(}})/g, "");
-					const object = values.get(key);
-					if (!object) return;
-
-					const string = Object.entries(object)
-						.map(([key, value]) => `${key}:${value}`)
-						.join(";");
-
-					text.node.textContent = string;
-					return;
-				}
-			}
-
 			strings.forEach(key => {
 				content = content.replaceAll(`{{${key}}}`, values.get(key));
 			});
@@ -377,7 +397,7 @@ let simplify = null;
 				});
 			});
 
-			text.node.textContent = content;
+			node.textContent = content;
 		});
 
 		this.subtrees.forEach(subtree => subtree.updateTexts());

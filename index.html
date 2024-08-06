@@ -70,7 +70,7 @@
 				if (fetching) return;
 				fetching = true;
 
-				list.styles.list = {transition: "opacity 0.2s", opacity: 0.2};
+				list.styles.list.opacity = 0.2;
 				list.prevLink = null;
 				list.nextLink = null;
 
@@ -106,14 +106,14 @@
 							else if (name === "next") list.nextLink = link;
 						});
 
-						list.styles.prev = {transition: "opacity 0.2s", opacity: list.prevLink? 1: 0.2};
-						list.styles.next = {transition: "opacity 0.2s", opacity: list.nextLink? 1: 0.2};
+						list.styles.prev.opacity = list.prevLink? 1: 0.2;
+						list.styles.next.opacity = list.nextLink? 1: 0.2;
 					})
 					.catch(err => {
 						list.messages.push({message: "failed to fetch"});
 					})
 					.finally(() => {
-						list.styles.list = {transition: "opacity 0.2s", opacity: 1};
+						list.styles.list.opacity = 1;
 						fetching = false;
 					});
 			}
