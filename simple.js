@@ -8,6 +8,8 @@ let simplify = null;
 	const TEMPLATE_KEYS = Symbol();
 	const TEMPLATE_PROXYS = Symbol();
 	const LISTENER_KEYS = Symbol();
+	const STYLE_KEYS = Symbol();
+	const STYLE_PROXYS = Symbol();
 
 	simplify = element => {
 		const data = {};
@@ -16,6 +18,7 @@ let simplify = null;
 		const handler = {
 			get(target, property) {
 				if (data[LISTENER_KEYS].has(property)) return data[property];
+				if (data[STYLE_KEYS].has(property)) return data[STYLE_PROXYS].get(property);
 				if (data[STRING_KEYS].has(property)) return data[property];
 				if (data[OBJECT_KEYS].has(property)) return data[OBJECT_PROXYS].get(property);
 				if (data[TEMPLATE_KEYS].has(property)) return data[TEMPLATE_PROXYS].get(property);
@@ -37,7 +40,7 @@ let simplify = null;
 
 				return data[OTHER_KEYS][property];
 			},
-			set (target, property, value) {
+			set(target, property, value) {
 				if (data[LISTENER_KEYS].has(property)) {
 					data[property] = value;
 					return;
@@ -81,6 +84,8 @@ let simplify = null;
 		if (!data[TEMPLATE_KEYS]) data[TEMPLATE_KEYS] = new Set();
 		if (!data[TEMPLATE_PROXYS]) data[TEMPLATE_PROXYS] = new Map();
 		if (!data[LISTENER_KEYS]) data[LISTENER_KEYS] = new Set();
+		if (!data[STYLE_KEYS]) data[STYLE_KEYS] = new Set();
+		if (!data[STYLE_PROXYS]) data[STYLE_PROXYS] = new Map();
 
 		const attributeNodes = [...element.attributes];
 		const childNodes = [...element.childNodes];
@@ -113,6 +118,14 @@ let simplify = null;
 					return;
 				}
 			}
+
+			if (node.name === "style") {
+				if (/^{{[a-z0-9]+}}$/.test(content)) {
+					const key = content.replaceAll(/({{)|(}})/g, "");
+					data[STYLE_KEYS].add(key);
+				}
+			}
+
 
 			const strings = content.match(/{{[a-z0-9]+}}/g)
 				?.map(match => match.replaceAll(/({{)|(}})/g, ""))
@@ -181,6 +194,7 @@ let simplify = null;
 
 		data[OBJECT_KEYS].forEach((subkey, key) => createObjectProxy(tree, key));
 		data[TEMPLATE_KEYS].forEach(key => createTemplateProxy(tree, key));
+		data[STYLE_KEYS].forEach(key => createStyleProxy(tree, key));
 
 		if (root) {
 			tree.updateTexts();
@@ -299,6 +313,33 @@ let simplify = null;
 		const handler = {
 			get: getTrap.bind(this, data, key, key),
 			set: setTrap.bind(this, data, key),
+		};
+
+		proxys.set(key, new Proxy({}, handler));
+	}
+
+	function createStyleProxy(tree, key) {
+		const data = tree.data;
+		const proxys = data[STYLE_PROXYS];
+		if (!data[key]) data[key] = {[OTHER_KEYS]: {}};
+
+		const handler = {
+			get(target, property) {
+				const value = data[key][property];
+
+				if (typeof value === "function") {
+					return (...args) => {
+						value.bind(data[key])(...args);
+						tree.updateTexts();
+					};
+				} else {
+					return value;
+				}
+			},
+			set(target, property, value) {
+				data[key][property] = value;
+				tree.updateTexts();
+			},
 		};
 
 		proxys.set(key, new Proxy({}, handler));
